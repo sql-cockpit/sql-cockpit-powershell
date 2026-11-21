@@ -20,14 +20,26 @@ function ConvertTo-SqlCockpitPortalUrl {
     if ($uri.UserInfo -or $uri.Query -or $uri.Fragment) {
         throw (Get-SqlCockpitErrorRecord -Message 'The portal URL must not contain credentials, a query string or a fragment.' -Code 'invalid_config')
     }
-    $loopback = @('localhost', '127.0.0.1', '[::1]') -contains $uri.Host.ToLowerInvariant()
+    # .NET Framework writes [::1] out in full, so compare the parsed address rather than the text.
+    $hostText = $uri.Host
+    $isIPv6Loopback = $false
+    if ($uri.HostNameType -eq [UriHostNameType]::IPv6) {
+        $address = $null
+        if ([System.Net.IPAddress]::TryParse($uri.DnsSafeHost, [ref] $address)) {
+            $isIPv6Loopback = $address.Equals([System.Net.IPAddress]::IPv6Loopback)
+        }
+        if ($isIPv6Loopback) { $hostText = '[::1]' }
+    }
+    $loopback = $isIPv6Loopback -or (@('localhost', '127.0.0.1') -contains $uri.Host.ToLowerInvariant())
     $isHttps = $uri.Scheme -eq 'https'
     $isLoopbackHttp = $uri.Scheme -eq 'http' -and $loopback
     if (-not ($isHttps -or $isLoopbackHttp)) {
         throw (Get-SqlCockpitErrorRecord -Message 'The portal URL must use https:// (http:// is only allowed for localhost).' -Code 'invalid_config')
     }
 
-    $text = $uri.GetLeftPart([UriPartial]::Path).TrimEnd('/')
+    $text = '{0}://{1}' -f $uri.Scheme, $hostText
+    if (-not $uri.IsDefaultPort) { $text = '{0}:{1}' -f $text, $uri.Port }
+    $text = ($text + $uri.AbsolutePath).TrimEnd('/')
     if ($text.ToLowerInvariant().EndsWith($script:ApiPrefix)) {
         $text = $text.Substring(0, $text.Length - $script:ApiPrefix.Length).TrimEnd('/')
     }

@@ -45,7 +45,10 @@ function New-TestResponse {
 # $global:SqlCockpitTest.Responses (the last response repeats).
 function Reset-TestTransport {
     param([object[]] $Responses = @((New-TestResponse)))
+    $configPath = $null
+    if ($global:SqlCockpitTest) { $configPath = $global:SqlCockpitTest.ConfigPath }
     $global:SqlCockpitTest = @{
+        ConfigPath = $configPath
         Calls     = New-Object System.Collections.ArrayList
         Responses = New-Object System.Collections.ArrayList
     }

@@ -68,7 +68,7 @@ function ConvertTo-SqlCockpitObject {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
-        [Parameter(Mandatory)]
+        [AllowNull()]
         [object] $InputObject,
 
         [Parameter(Mandatory)]
@@ -79,6 +79,7 @@ function ConvertTo-SqlCockpitObject {
         [System.Collections.IDictionary] $Extra
     )
 
+    if ($null -eq $InputObject) { return }
     $properties = [ordered]@{}
     if ($IdName -and $null -ne $InputObject.PSObject.Properties['id']) {
         $properties[$IdName] = $InputObject.id
@@ -108,7 +109,7 @@ function ConvertTo-SqlCockpitMember {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
-        [Parameter(Mandatory)]
+        [AllowNull()]
         [object] $Member,
 
         [Parameter(Mandatory)]
@@ -117,6 +118,7 @@ function ConvertTo-SqlCockpitMember {
         [string] $TenantName
     )
 
+    if ($null -eq $Member) { return }
     $extra = [ordered]@{ TenantId = $TenantId }
     if ($TenantName) { $extra.TenantName = $TenantName }
     ConvertTo-SqlCockpitObject -InputObject $Member -TypeName 'SqlCockpit.TeamMember' -IdName 'MembershipId' -Extra $extra
@@ -130,12 +132,13 @@ function ConvertTo-SqlCockpitTicket {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
-        [Parameter(Mandatory)]
+        [AllowNull()]
         [object] $Ticket,
 
         [switch] $Detail
     )
 
+    if ($null -eq $Ticket) { return }
     $extra = [ordered]@{}
     $tenant = $Ticket.tenant
     $extra.TenantId = $null

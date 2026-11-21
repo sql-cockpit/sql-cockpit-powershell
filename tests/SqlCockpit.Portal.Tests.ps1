@@ -26,7 +26,8 @@ Describe 'SqlCockpit.Portal' {
         $env:SQL_COCKPIT_API_KEY = $null
         $env:SQL_COCKPIT_PORTAL_URL = $null
         $env:SQL_COCKPIT_PROFILE = $null
-        $global:SqlCockpitTest.ConfigPath = Join-Path -Path $TestDrive -ChildPath 'missing.conf'
+        $global:SqlCockpitTest.ConfigPath = Join-Path -Path $TestDrive -ChildPath 'sqlcockpit.conf'
+        Remove-Item -LiteralPath $global:SqlCockpitTest.ConfigPath -ErrorAction SilentlyContinue
 
         Mock -ModuleName SqlCockpit.Portal -CommandName Send-SqlCockpitHttpRequest -MockWith {
             $null = $global:SqlCockpitTest.Calls.Add([pscustomobject]@{
@@ -35,6 +36,12 @@ Describe 'SqlCockpit.Portal' {
                     Body       = $PesterBoundParameters['Body']
                     HasBody    = $PesterBoundParameters.ContainsKey('Body')
                     ApiKey     = $PesterBoundParameters['ApiKey']
+                    KeyText    = & {
+                        # Read the key now: keys from the environment or config file are disposed after the request.
+                        $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($PesterBoundParameters['ApiKey'])
+                        try { [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+                        finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+                    }
                     UserAgent  = $PesterBoundParameters['UserAgent']
                     MaxBytes   = $PesterBoundParameters['MaxBytes']
                     TimeoutSec = $PesterBoundParameters['TimeoutSec']
@@ -110,7 +117,7 @@ Describe 'SqlCockpit.Portal' {
             $call.Method | Should -BeExactly $Method
             $call.Uri | Should -BeExactly ($script:Base + $Path)
             $call.UserAgent | Should -Match '^SqlCockpit\.Portal/0\.1\.0 PowerShell/\d+\.\d+'
-            ConvertFrom-TestSecureString $call.ApiKey | Should -BeExactly $script:KeyText
+            $call.KeyText | Should -BeExactly $script:KeyText
             $call.MaxBytes | Should -Be 2MB
             if ($null -eq $Body) {
                 $call.HasBody | Should -BeFalse
@@ -560,7 +567,7 @@ Describe 'SqlCockpit.Portal' {
             Set-Content -LiteralPath $global:SqlCockpitTest.ConfigPath -Value @(
                 '# comment', '[profile default]', 'api_key = sco_file_default_key_0123456789', 'portal_url = https://file.example.test')
             $null = Get-SqlCockpitAccount
-            ConvertFrom-TestSecureString (Get-TestCall).ApiKey | Should -Be 'sco_file_default_key_0123456789'
+            (Get-TestCall).KeyText | Should -Be 'sco_file_default_key_0123456789'
             (Get-TestCall).Uri | Should -Be 'https://file.example.test/api/portal/v1/account'
         }
 
@@ -569,7 +576,7 @@ Describe 'SqlCockpit.Portal' {
                 '[default]', 'profile = work', '', '[profile default]', 'api_key = sco_file_default_key_0123456789',
                 '[profile work]', 'api_key = sco_file_work_key_0123456789abc', 'portal_url = https://work.example.test/api/portal/v1')
             $null = Get-SqlCockpitAccount
-            ConvertFrom-TestSecureString (Get-TestCall).ApiKey | Should -Be 'sco_file_work_key_0123456789abc'
+            (Get-TestCall).KeyText | Should -Be 'sco_file_work_key_0123456789abc'
             (Get-TestCall).Uri | Should -Be 'https://work.example.test/api/portal/v1/account'
         }
 
@@ -579,7 +586,7 @@ Describe 'SqlCockpit.Portal' {
                 '[profile staging]', 'api_key = sco_file_staging_key_0123456789', 'portal_url = https://staging.example.test')
             $env:SQL_COCKPIT_PROFILE = 'staging'
             $null = Get-SqlCockpitAccount
-            ConvertFrom-TestSecureString (Get-TestCall).ApiKey | Should -Be 'sco_file_staging_key_0123456789'
+            (Get-TestCall).KeyText | Should -Be 'sco_file_staging_key_0123456789'
             (Get-TestCall).Uri | Should -Be 'https://staging.example.test/api/portal/v1/account'
         }
 
@@ -596,7 +603,7 @@ Describe 'SqlCockpit.Portal' {
             $env:SQL_COCKPIT_API_KEY = 'sco_env_key_0123456789abcdef'
             $env:SQL_COCKPIT_PORTAL_URL = 'https://env.example.test'
             $null = Get-SqlCockpitAccount
-            ConvertFrom-TestSecureString (Get-TestCall).ApiKey | Should -Be 'sco_env_key_0123456789abcdef'
+            (Get-TestCall).KeyText | Should -Be 'sco_env_key_0123456789abcdef'
             (Get-TestCall).Uri | Should -Be 'https://env.example.test/api/portal/v1/account'
         }
 
@@ -618,7 +625,7 @@ Describe 'SqlCockpit.Portal' {
             $env:SQL_COCKPIT_API_KEY = 'sco_env_key_0123456789abcdef'
             $null = Connect-SqlCockpit -ApiKey (New-TestSecureString 'sco_connect_key_0123456789ab') -PortalUrl 'https://connect.example.test' -SkipCheck
             $null = Get-SqlCockpitAccount
-            ConvertFrom-TestSecureString (Get-TestCall).ApiKey | Should -Be 'sco_connect_key_0123456789ab'
+            (Get-TestCall).KeyText | Should -Be 'sco_connect_key_0123456789ab'
             (Get-TestCall).Uri | Should -Be 'https://connect.example.test/api/portal/v1/account'
         }
 
@@ -627,7 +634,7 @@ Describe 'SqlCockpit.Portal' {
             $null = Connect-SqlCockpit -ApiKey (New-TestSecureString 'sco_connect_key_0123456789ab') -SkipCheck
             Disconnect-SqlCockpit
             $null = Get-SqlCockpitAccount
-            ConvertFrom-TestSecureString (Get-TestCall).ApiKey | Should -Be 'sco_env_key_0123456789abcdef'
+            (Get-TestCall).KeyText | Should -Be 'sco_env_key_0123456789abcdef'
         }
 
         It 'Connect-SqlCockpit uses SQL_COCKPIT_PORTAL_URL when -PortalUrl is left out' {
@@ -655,7 +662,7 @@ Describe 'SqlCockpit.Portal' {
             $record.CategoryInfo.Category | Should -Be 'AuthenticationError'
             Reset-TestTransport
             $null = Get-SqlCockpitAccount
-            ConvertFrom-TestSecureString (Get-TestCall).ApiKey | Should -Be 'sco_first_key_0123456789abcd'
+            (Get-TestCall).KeyText | Should -Be 'sco_first_key_0123456789abcd'
         }
 
         It 'Connect-SqlCockpit prompts for the key when interactive' {
@@ -664,7 +671,7 @@ Describe 'SqlCockpit.Portal' {
             $null = Connect-SqlCockpit -SkipCheck
             Should -Invoke -ModuleName SqlCockpit.Portal -CommandName Read-Host -Times 1 -Exactly -ParameterFilter { $AsSecureString }
             $null = Get-SqlCockpitAccount
-            ConvertFrom-TestSecureString (Get-TestCall).ApiKey | Should -Be 'sco_prompted_key_0123456789a'
+            (Get-TestCall).KeyText | Should -Be 'sco_prompted_key_0123456789a'
         }
 
         It 'Connect-SqlCockpit without a key fails when it cannot prompt' {

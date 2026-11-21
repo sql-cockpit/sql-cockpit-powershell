@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -MinimumVersion 1.21.0 -Force -Scope CurrentUser
+      - name: Analyze
+        shell: pwsh
+        run: |
+          $paths = @('./SqlCockpit.Portal', './install.ps1', './examples')
+          $results = foreach ($path in $paths) {
+            Invoke-ScriptAnalyzer -Path $path -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          }
+          $results | Format-Table -AutoSize -Wrap RuleName, Severity, ScriptName, Line, Message
+          if ($results) { throw "PSScriptAnalyzer found $(@($results).Count) issue(s)." }
+          'PSScriptAnalyzer: no issues.'
+
+  test:
+    name: Pester (${{ matrix.os }}, ${{ matrix.shell }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            shell: pwsh
+          - os: windows-latest
+            shell: pwsh
+          - os: windows-latest
+            shell: powershell
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Pester 5
+        run: |
+          $PSVersionTable | Format-Table -AutoSize
+          [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+          if (-not (Get-PackageProvider -ListAvailable -Name NuGet -ErrorAction SilentlyContinue | Where-Object Version -ge '2.8.5.201')) {
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
+          }
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -MinimumVersion 5.5 -Force -Scope CurrentUser -SkipPublisherCheck
+      - name: Check the manifest
+        run: |
+          Test-ModuleManifest ./SqlCockpit.Portal/SqlCockpit.Portal.psd1 | Format-List Name, Version, CompatiblePSEditions, PowerShellVersion
+          Import-Module ./SqlCockpit.Portal/SqlCockpit.Portal.psd1 -Force
+          Get-Command -Module SqlCockpit.Portal | Format-Table -AutoSize
+      - name: Run Pester
+        run: |
+          Import-Module Pester -MinimumVersion 5.5
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $config
+      - name: Install with install.ps1 from the checkout
+        run: |
+          $destination = Join-Path ([IO.Path]::GetTempPath()) 'sqlcockpit-modules'
+          ./install.ps1 -SourcePath ./SqlCockpit.Portal -Destination $destination
+          $env:PSModulePath = $destination + [IO.Path]::PathSeparator + $env:PSModulePath
+          Import-Module SqlCockpit.Portal -Force
+          (Get-Module SqlCockpit.Portal).Version.ToString()

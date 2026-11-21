@@ -1,0 +1,18 @@
+# Build output and release archives
+/out/
+*.zip
+
+# Test results
+testResults.xml
+coverage.xml
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Never commit credentials
+.sqlcockpit.conf
+*.secret
